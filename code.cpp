@@ -6,13 +6,61 @@
 #include <sstream>
 #include <cstdlib>
 #include <string.h>
+#include <random>
 #include <map>
+#include <chrono>
 
-
+using namespace std::chrono;
 // Format checker just assumes you have Alarm.bif and Solved_Alarm.bif (your file) in current directory
 using namespace std;
 
 // Our graph consists of a list of nodes where each node is represented as follows:
+
+
+
+
+
+bool isDataPointComplete(vector<string> dataPoint){
+	string questionMark = "?";
+	for(int i=0;i<dataPoint.size();i++){
+        size_t found = dataPoint[i].find(questionMark);
+		if(found != string::npos){
+    		return 0;
+    	}
+	}
+	return 1;
+}
+
+
+int findMissingFeature(vector<string> dataPoint){
+	string questionMark = "?";
+	for(int i=0;i<dataPoint.size();i++){
+        size_t found = dataPoint[i].find(questionMark);
+		if(found != string::npos){
+    		return i;
+    	}
+	}
+	return -1;
+}
+
+bool isStringPresentInVector(vector<string> v, string key){
+	for(int i=0;i<v.size();i++){
+		if(v[i].compare(key) == 0){
+			return 1;
+		}
+	}
+	return 0;
+}
+
+vector<string> replaceQuestionMark(string str, vector<string> dataPoint){
+	int index = findMissingFeature(dataPoint);
+	if(index != -1){
+		dataPoint[index] = str;
+	}
+	return dataPoint;
+}
+
+
 class Graph_Node{
 
 public:
@@ -22,7 +70,8 @@ public:
 	int nvalues;  // Number of categories a variable represented by this node can take
 	vector<string> values; // Categories of possible values
     map<string,int> cpt_maps;
-	vector<float> CPT; // conditional probability table as a 1-d array . Look for BIF format to understand its meaning
+	vector<float> CPT;
+	vector<float> aux_CPT; // conditional probability table as a 1-d array . Look for BIF format to understand its meaning
 
 public:
 	// Constructor- a node is initialised with its name and its categories
@@ -31,34 +80,85 @@ public:
 		nvalues = n;
 		values = vals;
 	}
+
 	string get_name(){
 		return Node_Name;
 	}
+
 	vector<int> get_children(){
 		return Children;
 	}
 	vector<string> get_Parents(){
 		return Parents;
 	}
+
 	vector<float> get_CPT(){
 		return CPT;
+	}
+
+	void clear_Aux(){
+		for(int i=0;i<CPT.size();i++){
+			aux_CPT.push_back(0);
+		}
+	}
+
+	void smoothen_divide_Aux(float sigma){
+		for(int i=0;i<aux_CPT.size();i++){
+			if(aux_CPT[i] == 0){
+				aux_CPT[i] = 1.0/sigma;
+			}
+			else{
+				aux_CPT[i] = aux_CPT[i]/sigma;
+			}
+		}
+		CPT = aux_CPT;
 	}
 	int get_nvalues(){
 		return nvalues;
 	}
+
 	vector<string> get_values(){
 		return values;
 	}
+
+	int index_value(string str){
+		for(int i=0;i<values.size();i++){
+			if(values[i].compare(str) == 0){
+				return i;
+			}
+		}
+		return -1;
+	}
+
 	void set_CPT(vector<float> new_CPT){
 		CPT.clear();
 		CPT=new_CPT;
 	}
+
+
+	void set_random_CPT(){
+		int n = CPT.size();
+		for(int i=0;i<n;i++){
+			if(CPT[i] == -1){
+				CPT[i] = (float)rand()/(RAND_MAX);
+			}
+		}
+	}
+
+	void view_node_CPT(){
+		int n = CPT.size();
+		for(int i=0;i<n;i++){
+			cout<<CPT[i]<<" ";
+		}
+		cout<<endl;
+	}
+
     void set_Parents(vector<string> Parent_Nodes){
         Parents.clear();
         Parents=Parent_Nodes;
     }
     // add another node in a graph as a child of this node
-    int add_child(int new_child_index ){
+    int add_child(int new_child_index){
         for(int i=0;i<Children.size();i++){
             if(Children[i]==new_child_index)
                 return 0;
@@ -76,10 +176,93 @@ public:
 		Pres_Graph.push_back(node);
 		return 0;
 	}
+
+	void viewCPT(){
+		list<Graph_Node>::iterator listIt;
+		for(listIt=Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+            cout<<listIt->get_name()<<": ";
+            vector<float> tempVector = listIt->get_CPT();
+            for(int i=0;i<tempVector.size();i++){
+            	cout << tempVector[i] << " ";
+            }
+            cout<<endl;
+        }      
+	}
+
+	void randomCPTinit(){
+		list<Graph_Node>::iterator listIt;
+		int count = 0;
+        for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+           	listIt->set_random_CPT();
+           	count++;
+        }
+	}
     
 	int netSize(){
 		return Pres_Graph.size();
 	}
+
+	void clear_All_Aux(){
+		list<Graph_Node>::iterator listIt;
+        for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+           	listIt->clear_Aux();
+        }
+	}
+
+	void smoothen_divide_all_Aux(float sigma){
+		list<Graph_Node>::iterator listIt;
+        for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+           	listIt->smoothen_divide_Aux(sigma);
+        }
+	}
+
+	void updateCPTs(vector<string> v, float weight){
+		list<Graph_Node>::iterator listIt;
+        for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+           	vector<string> temp_parents = listIt->get_Parents();
+           	// vector<int> index_features;
+           	vector<int> value_features;
+           	vector<int> possibleValues;
+           	// index_features.push_back(get_index(listIt->get_name()));
+           	value_features.push_back(listIt->index_value(v[get_index(listIt->get_name())]));
+           	possibleValues.push_back(listIt->get_nvalues());
+           	for(int i=0;i<temp_parents.size();i++){
+           		list<Graph_Node>::iterator tempNodeItr = search_node(temp_parents[i]);
+           		possibleValues.push_back(tempNodeItr->get_nvalues());
+           		// index_features.push_back(get_index(temp_parents[i]));
+           		value_features.push_back(tempNodeItr->index_value(v[get_index(temp_parents[i])]));
+           	}
+           	int tempIndex = 0;
+           	for(int i=0;i<possibleValues.size();i++){
+           		tempIndex += value_features[i]*(possibleValues[i] - 1);
+           	}
+           	listIt->aux_CPT[tempIndex] += weight;
+        }
+	}
+
+	vector<string> get_markov_blanket(string temp_name){
+		vector<string> markov_blanket;
+		list<Graph_Node>::iterator tempNode = search_node(temp_name);
+		vector<string> parents = tempNode->get_Parents();
+		for(int i=0;i<parents.size();i++){
+			markov_blanket.push_back(parents[i]);
+		}
+		vector<int> children = tempNode->get_children();
+		for(int i=0;i<children.size();i++){
+			list<Graph_Node>::iterator tempNode1 = get_nth_node(children[i]);
+			markov_blanket.push_back(tempNode1->get_name());
+			vector<string> temp_parents = tempNode1->get_Parents();
+			for(int j=0;j<temp_parents.size();j++){
+				if(!isStringPresentInVector(markov_blanket, temp_parents[j]) && temp_parents[j].compare(temp_name) != 0){
+					markov_blanket.push_back(temp_parents[j]);
+				}
+			}
+		}
+		return markov_blanket;
+	}
+
+
+
     // get the index of node with a given name
     int get_index(string val_name){
         list<Graph_Node>::iterator listIt;
@@ -102,6 +285,7 @@ public:
         }
         return listIt; 
     }
+
     //get the iterator of a node with a given name
     list<Graph_Node>::iterator search_node(string val_name){
         list<Graph_Node>::iterator listIt;
@@ -188,8 +372,10 @@ network read_network(){
   	return Alarm;
 }
 
-int main()
-{
+int main(){
+
+
+
 	network Alarm;
 	Alarm=read_network();
 	cout<<Alarm.netSize()<<endl;
@@ -303,7 +489,7 @@ int main()
         
         // read an entire row and 
         // store it in a string variable 'line' 
-        // used for breaking words 
+        // used for breaking words
         stringstream s(line);
         // read every column data of a row and 
         // store it in a string variable, 'word'
@@ -316,7 +502,6 @@ int main()
             string questionMark = "?";
             size_t found = word.find(questionMark);
     		if(found != string::npos){
-    			cout<<"hello"<<endl;
         		missingData[i].push_back(count);
         	}
         	i++;
@@ -327,6 +512,7 @@ int main()
     }
 
 
+
     // for(int i=0;i<inputData.size();i++){
     // 	cout<<inputData.at(i).size()<<endl;
     // 	for(int j=0;j<inputData.at(i).size();j++){
@@ -335,19 +521,63 @@ int main()
     // 	cout<<endl;
     // }
 
-    for(int i=0;i<numVariable;i++){
-    	cout<<Alarm.get_nth_node(i)->get_name()<<": ";
-    	for(int j=0;j<missingData[i].size();j++){
-    		cout<<missingData[i][j]<<" ";
-    	}
-    	cout<<endl;
-    }
+    // for(int i=0;i<numVariable;i++){
+    // 	cout<<Alarm.get_nth_node(i)->get_name()<<": ";
+    // 	for(int j=0;j<missingData[i].size();j++){
+    // 		cout<<missingData[i][j]<<" ";
+    // 	}
+    // 	cout<<endl;
+    // }
     // cout<<Alarm.get_nth_node(2)->Node_Name<<" "<<Alarm.get_nth_node(2)->cpt_maps.size()<<endl;
-     //cout<<Alarm.get_nth_node(12)->Node_Name<<" "<<Alarm.get_nth_node(12)->cpt_maps.size()<<endl;
+    //cout<<Alarm.get_nth_node(12)->Node_Name<<" "<<Alarm.get_nth_node(12)->cpt_maps.size()<<endl;
 
+
+
+    Alarm.randomCPTinit();
+    Alarm.viewCPT();
+    // int curr_params = 1;
+    vector<vector<string> > completedData;
+    vector<float> dataWeight;
+	auto start = high_resolution_clock::now();
+    auto stop = high_resolution_clock::now();
+    auto duration = duration_cast<seconds>(stop - start);
+    int timed=(int)duration.count();
+    while(timed < 110){
+    	completedData.clear();
+    	dataWeight.clear();
+    	// Step 1:
+    	for(int i=0;i<inputData.size();i++){
+			int missingFeature = findMissingFeature(inputData[i]);
+    		if(missingFeature == -1){
+    			completedData.push_back(inputData[i]);
+    			dataWeight.push_back(1);
+    		}
+    		else{
+    			list<Graph_Node>::iterator tempNode = Alarm.get_nth_node(i);
+    			int temp_num_values = tempNode->get_nvalues();
+    			vector<float> temp_CPT = tempNode->get_CPT();
+    			vector<string> temp_markov_blanket = Alarm.get_markov_blanket(tempNode->get_name());
+    			vector<string> temp_values = tempNode->get_values();
+    			float arr[temp_num_values] = {0.1};
+
+
+    			for(int j=0; j<temp_num_values; j++){
+    				completedData.push_back(replaceQuestionMark(temp_values[j], inputData[j]));
+    				dataWeight.push_back(arr[j]);
+    			}
+    		}
+    	}
+
+
+    	//Step 2:
+    	for(int i=0;i<completedData.size();i++){
+    		Alarm.updateCPTs(completedData[i], dataWeight[i]);
+    	}
+    	Alarm.smoothen_divide_all_Aux(inputData.size());
+
+    	auto stop = high_resolution_clock::now();
+        auto duration = duration_cast<seconds>(stop - start);
+        int timed=(int)duration.count();
+    }
     return 0;
 }
-
-
-
-
