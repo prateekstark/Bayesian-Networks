@@ -10,10 +10,7 @@
 #include <map>
 #include<iomanip>
 #include <ctime>
-// Format checker just assumes you have Alarm.bif and Solved_Alarm.bif (your file) in current directory
 using namespace std;
-
-// Our graph consists of a list of nodes where each node is represented as follows:
 
 bool isDataPointComplete(vector<string> dataPoint){
     string questionMark = "?";
@@ -25,7 +22,6 @@ bool isDataPointComplete(vector<string> dataPoint){
     }
     return 1;
 }
-
 
 int findMissingFeature(vector<string> dataPoint){
     string questionMark = "?";
@@ -55,6 +51,11 @@ vector<string> replaceQuestionMark(string str, vector<string> dataPoint){
     return dataPoint;
 }
 
+vector<string> replaceQuestionMarkIndex(string str, vector<string> dataPoint, int index){
+    dataPoint[index] = str;
+    return dataPoint;
+}
+
 
 class Graph_Node{
 
@@ -67,6 +68,7 @@ public:
     map<string,int> cpt_maps;
     vector<float> CPT;
     vector<float> aux_CPT; // conditional probability table as a 1-d array . Look for BIF format to understand its meaning
+    vector<float> aux_count_CPT;
 
 public:
     // Constructor- a node is initialised with its name and its categories
@@ -92,22 +94,50 @@ public:
     }
 
     void clear_Aux(){
+        int CPT_size = CPT.size();
+        int tempB, tempA = CPT_size/nvalues;
         for(int i=0;i<CPT.size();i++){
-            aux_CPT.push_back(0);
+            tempB = i%tempA;
+            aux_CPT[i] = 0.001;
+            aux_count_CPT[tempB] = 0.1;
         }
     }
 
-    void smoothen_divide_Aux(float sigma){
+    void clear_aux_count_CPT(){
+        aux_count_CPT.clear();
+        for(int i=0;i<CPT.size()/nvalues;i++){
+            aux_count_CPT.push_back(0);
+        }
+    }
+    void initialise_aux_count_CPT(){
+        int CPT_size = CPT.size();
+        aux_count_CPT.clear();
+        aux_CPT.clear();
+        for(int i=0;i<CPT.size()/nvalues;i++){
+            aux_count_CPT.push_back(0.1);
+        }
+        for(int i=0;i<CPT.size();i++){
+            aux_CPT.push_back(0.001);
+        }
+    }
+
+    void smoothen_divide_Aux(){
+        int CPT_size = CPT.size();
+        int tempB, tempA = CPT_size/nvalues;
         for(int i=0;i<aux_CPT.size();i++){
-            if(aux_CPT[i] == 0){
-                aux_CPT[i] = 1.0/sigma;
+            tempB = i%tempA;
+            if(aux_CPT[i] < 0.0001 || aux_count_CPT[tempB] < 0.1){
+                aux_CPT[i] = 0.001;
+                aux_count_CPT[tempB] = 0.1;
             }
             else{
-                aux_CPT[i] = aux_CPT[i]/sigma;
+                aux_CPT[i] = aux_CPT[i]/aux_count_CPT[tempB];
             }
         }
         CPT = aux_CPT;
+        clear_Aux();
     }
+
     int get_nvalues(){
         return nvalues;
     }
@@ -139,7 +169,6 @@ public:
         CPT=new_CPT;
     }
 
-
     void set_random_CPT(){
         int n = CPT.size();
         for(int i=0;i<n;i++){
@@ -161,7 +190,7 @@ public:
         Parents.clear();
         Parents=Parent_Nodes;
     }
-    // add another node in a graph as a child of this node
+    
     int add_child(int new_child_index){
         for(int i=0;i<Children.size();i++){
             if(Children[i]==new_child_index)
@@ -193,6 +222,15 @@ public:
         }      
     }
 
+    vector<string> giveNodes(){
+        vector<string> answer;
+        list<Graph_Node>::iterator listIt;
+        for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+            answer.push_back(listIt->get_name());
+        }
+        return answer;
+    }
+
     void randomCPTinit(){
         list<Graph_Node>::iterator listIt;
         int count = 0;
@@ -210,37 +248,42 @@ public:
         list<Graph_Node>::iterator listIt;
         for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
             listIt->clear_Aux();
+            listIt->clear_aux_count_CPT();
         }
     }
 
-    void smoothen_divide_all_Aux(float sigma){
+    void smoothen_divide_all_Aux(){
         list<Graph_Node>::iterator listIt;
         for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
-            listIt->smoothen_divide_Aux(sigma);
+            listIt->smoothen_divide_Aux();
+        }
+    }
+
+    void initialise_all_aux_count_CPT(){
+        list<Graph_Node>::iterator listIt;
+        for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
+            listIt->initialise_aux_count_CPT();
         }
     }
 
     float giveProba(vector<string> dataPoint, string node){
         list<Graph_Node>::iterator tempNode = search_node(node);
-        vector<int> value_features;
-        vector<int> possibleValues;
-        value_features.push_back(tempNode->index_value(dataPoint[get_index(node)]));
-        possibleValues.push_back(tempNode->get_nvalues());
+        int CPT_size = tempNode->CPT.size();
+        int tempIndex = 0;
+        int tempInt = CPT_size;
+        int value_feature = tempNode->index_value(dataPoint[get_index(node)]);
+        int num_possible = tempNode->get_nvalues();
+        tempIndex += tempInt*value_feature/num_possible;
+        tempInt = tempInt/num_possible;
         vector<string> temp_parents = tempNode->get_Parents();
+        
         for(int i=0;i<temp_parents.size();i++){
             list<Graph_Node>::iterator tempNodeItr = search_node(temp_parents[i]);
             int index = get_index(temp_parents[i]);
-            value_features.push_back(tempNodeItr->index_value(dataPoint[index]));
-            possibleValues.push_back(tempNodeItr->get_nvalues());
-        }
-        int tempIndex = 0;
-        int tempInt = 1;
-        for(int i=0;i<possibleValues.size();i++){
-            tempInt = tempInt*possibleValues[i];
-        }
-        for(int i=0;i<possibleValues.size();i++){
-            tempIndex += tempInt*value_features[i]/possibleValues[i];
-            tempInt = tempInt/possibleValues[i];
+            value_feature = tempNodeItr->index_value(dataPoint[index]);
+            num_possible = tempNodeItr->get_nvalues();
+            tempIndex += tempInt*value_feature/num_possible;
+            tempInt = tempInt/num_possible;
         }
         return tempNode->CPT[tempIndex];
     }
@@ -249,32 +292,24 @@ public:
         list<Graph_Node>::iterator listIt;
         for(listIt = Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
             vector<string> temp_parents = listIt->get_Parents();
-            // vector<int> index_features;
-            vector<int> value_features;
-            vector<int> possibleValues;
-
-            // index_features.push_back(get_index(listIt->get_name()));
-            value_features.push_back(listIt->index_value(v[get_index(listIt->get_name())]));
-            possibleValues.push_back(listIt->get_nvalues());
-            // cout<<temp_parents.size()<<endl;
+            int CPT_size = listIt->CPT.size();
+            int tempIndex = 0;
+            int a;
+            int value_feature = listIt->index_value(v[get_index(listIt->get_name())]);
+            int num_possible = listIt->get_nvalues();
+            int tempInt = CPT_size;
+            a = tempInt*value_feature/num_possible;
+            tempIndex += tempInt*value_feature/num_possible;
+            tempInt = tempInt/num_possible;
             for(int i=0;i<temp_parents.size();i++){
                 list<Graph_Node>::iterator tempNodeItr = search_node(temp_parents[i]);
-                possibleValues.push_back(tempNodeItr->get_nvalues());
-                // index_features.push_back(get_index(temp_parents[i]));
-                value_features.push_back(tempNodeItr->index_value(v[get_index(temp_parents[i])]));
+                value_feature = tempNodeItr->index_value(v[get_index(temp_parents[i])]);
+                num_possible = tempNodeItr->get_nvalues();
+                tempIndex += tempInt*value_feature/num_possible;
+                tempInt = tempInt/num_possible;
             }
-            int tempIndex = 0;
-            int tempInt = 1;
-            for(int i=0;i<possibleValues.size();i++){
-                tempInt = tempInt*possibleValues[i];
-            }
-            // cout<<tempInt<<endl;
-            for(int i=0;i<possibleValues.size();i++){
-                tempIndex += tempInt*value_features[i]/possibleValues[i];
-                tempInt = tempInt/possibleValues[i];
-            }
-
             listIt->aux_CPT[tempIndex] += weight;
+            listIt->aux_count_CPT[tempIndex - a] += weight;
         }
     }
 
@@ -311,6 +346,7 @@ public:
         }
         return -1;
     }
+
 // get the node at nth index
     list<Graph_Node>::iterator get_nth_node(int n){
        list<Graph_Node>::iterator listIt;
@@ -323,7 +359,7 @@ public:
         return listIt; 
     }
 
-    //get the iterator of a node with a given name
+//get the iterator of a node with a given name
     list<Graph_Node>::iterator search_node(string val_name){
         list<Graph_Node>::iterator listIt;
         for(listIt=Pres_Graph.begin();listIt!=Pres_Graph.end();listIt++){
@@ -335,7 +371,6 @@ public:
         return listIt;
     }
 };
-
 
 void write_network(string inputFileName, network Alarm){
     string line;
@@ -362,7 +397,6 @@ void write_network(string inputFileName, network Alarm){
 
             else if(temp.compare("variable") == 0){
                 outputFile << line << endl;
-                ss>>name;
                 getline (myfile,line);
                 outputFile << line << endl;
                 getline (myfile,line);
@@ -371,20 +405,18 @@ void write_network(string inputFileName, network Alarm){
                 outputFile << line << endl;
             }
 
-            else if(temp.compare("probability")==0){
+            else if(temp.compare("probability") == 0){
                 outputFile << line << endl;
                 getline (myfile, line);
                 outputFile << "    table ";
-                list<Graph_Node>::iterator listIt = Alarm.get_nth_node(variable_count++);
+                list<Graph_Node>::iterator listIt = Alarm.get_nth_node(variable_count);
                 vector<float> CPT = listIt->get_CPT();
                 for(int i=0;i<CPT.size();++i){
-                    float tempFloat = CPT[i]*1000000;
-                    tempFloat = floor(tempFloat);
-                    outputFile << tempFloat/1000000 << " ";
+                    outputFile << CPT[i] << " ";
                 }
                 outputFile << ";" << endl;
                 outputFile << "}" << endl;
-                // variable_count++;
+                variable_count++;
             }
             else if(temp.compare("//") == 0){
                 outputFile << line << endl;
@@ -396,7 +428,7 @@ void write_network(string inputFileName, network Alarm){
 }
 
 
-network read_network(string inputFileName){
+network read_network(string inputFileName, map<string, vector<string> > &valueMap, map<string, int> &valueNumMap){
     network Alarm;
     string line;
     int find=0;
@@ -410,52 +442,54 @@ network read_network(string inputFileName){
             getline (myfile,line);
             ss.str(line);
             ss>>temp;
-            if(temp.compare("variable")==0){
-                    ss>>name;
-                    getline (myfile,line);
-                    stringstream ss2;
-                    ss2.str(line);
-                    for(int i=0;i<4;i++){
-                        ss2>>temp;
-                    }
-                    values.clear();
-                    while(temp.compare("};")!=0){
-                        values.push_back(temp);
-                        ss2>>temp;
-                    }
-                    Graph_Node new_node(name,values.size(),values);
-                    int pos=Alarm.addNode(new_node);
+            if(temp.compare("variable") == 0){
+                ss>>name;
+                getline (myfile,line);
+                stringstream ss2;
+                ss2.str(line);
+                for(int i=0;i<4;i++){
+                    ss2>>temp;
+                }
+                values.clear();
+                while(temp.compare("};")!=0){
+                    values.push_back(temp);
+                    ss2>>temp;
+                }
+                Graph_Node new_node(name,values.size(),values);
+                valueMap.insert(pair<string, vector<string> >(name, values));
+                valueNumMap.insert(pair<string, int>(name, values.size()));
+                int pos=Alarm.addNode(new_node);
             }
-            else if(temp.compare("probability")==0){
+            else if(temp.compare("probability") == 0){
+                ss>>temp;
+                ss>>temp;
+                list<Graph_Node>::iterator listIt;
+                list<Graph_Node>::iterator listIt1;
+                listIt=Alarm.search_node(temp);
+                int index=Alarm.get_index(temp);
+                ss>>temp;
+                values.clear();
+                while(temp.compare(")") != 0){
+                    listIt1=Alarm.search_node(temp);
+                    listIt1->add_child(index);
+                    values.push_back(temp); 
                     ss>>temp;
-                    ss>>temp;
-                    list<Graph_Node>::iterator listIt;
-                    list<Graph_Node>::iterator listIt1;
-                    listIt=Alarm.search_node(temp);
-                    int index=Alarm.get_index(temp);
-                    ss>>temp;
-                    values.clear();
-                    while(temp.compare(")")!=0){
-                        listIt1=Alarm.search_node(temp);
-                        listIt1->add_child(index);
-                        values.push_back(temp); 
-                        ss>>temp;
-                    }
-                    listIt->set_Parents(values);
-                    getline (myfile,line);
-                    stringstream ss2;
-                    ss2.str(line);
-                    ss2>> temp;
-                    ss2>> temp;
-                    
-                    vector<float> curr_CPT;
-                    string::size_type sz;
-                    while(temp.compare(";")!=0){
-                        curr_CPT.push_back(atof(temp.c_str()));
-                        ss2>>temp;
-                    }
-                    
-                    listIt->set_CPT(curr_CPT);
+                }
+                listIt->set_Parents(values);
+                getline (myfile,line);
+                stringstream ss2;
+                ss2.str(line);
+                ss2>> temp;
+                ss2>> temp;
+                
+                vector<float> curr_CPT;
+                string::size_type sz;
+                while(temp.compare(";")!=0){
+                    curr_CPT.push_back(atof(temp.c_str()));
+                    ss2>>temp;
+                }
+                
+                listIt->set_CPT(curr_CPT);
             }
             else{
                 
@@ -472,68 +506,64 @@ int main(int argc, char **argv){
     string inputFileName = argv[1];
     string recordFileName = argv[2];
     network Alarm;
-    Alarm=read_network(inputFileName);
-    cout<<Alarm.netSize()<<endl;
-    int numVariable;
-    numVariable = Alarm.netSize();
-
+    map<string, vector<string> > valueMap;
+    map<string, int> valueNumMap;
+    Alarm=read_network(inputFileName, valueMap, valueNumMap);
+    vector<string> nodeList = Alarm.giveNodes();
     Alarm.randomCPTinit();
-    Alarm.get_nth_node(0)->view_values();
-    vector<vector<string> > completedData;
-    vector<float> dataWeight;
-    Alarm.clear_All_Aux();
+    Alarm.initialise_all_aux_count_CPT();
     clock_t start = clock();
     clock_t stop = clock();
     float duration = float(stop - start)/CLOCKS_PER_SEC;
-    
+    ifstream fin;
+    fin.open(recordFileName); 
+    vector<string> row;
+    vector<vector<string> > inputData;
+    string line, word, temp;
+    while(getline(fin, line)){
+        row.clear();
+        stringstream s(line);
+        int i = 0; 
+        while(getline(s, word, ' ')){
+            row.push_back(word);
+        }
+        inputData.push_back(row);
+    }
+    fin.close();
+
     while(duration < 110){
         cout << duration << endl;
-        ifstream fin;
-        fin.open(recordFileName); 
-        vector<string> row;
-        vector<vector<string> > inputData;
-        string line, word, temp;
-        int count = 0;
-        while(getline(fin, line)){
-            row.clear();
-            stringstream s(line);
-            int i = 0; 
-            while(getline(s, word, ' ')){
-                row.push_back(word);
-            }
-            vector<string> inputPoint = row;
-            int missingFeature = findMissingFeature(inputPoint);            
+        for(int i=0;i<inputData.size();i++){
+            vector<string> inputPoint = inputData[i];
+            int missingFeature = findMissingFeature(inputPoint);         
             if(missingFeature == -1){
                 Alarm.updateCPTs(inputPoint, 1);
             }
             else{
                 list<Graph_Node>::iterator tempNode = Alarm.get_nth_node(missingFeature);
-                int temp_num_values = tempNode->get_nvalues();
-                vector<float> temp_CPT = tempNode->get_CPT();
-                vector<string> temp_markov_blanket = Alarm.get_markov_blanket(tempNode->get_name());
-                vector<string> temp_values = tempNode->get_values();
+                string tempName = tempNode->get_name();
+                int temp_num_values = valueNumMap[tempName];
+                vector<string> temp_values = valueMap[tempName];
                 vector<string> dataPoints[temp_num_values];
                 float tempWeights[temp_num_values];
                 float sum = 0;
                 for(int j=0;j<temp_num_values; j++){ 
-                    vector<string> completePoint = replaceQuestionMark(temp_values[j], inputPoint);
-                    float proba = Alarm.giveProba(completePoint, tempNode->get_name());
-                    for(int k=0;k<temp_markov_blanket.size();k++){
-                        proba = proba*Alarm.giveProba(completePoint, temp_markov_blanket[k]);
+                    vector<string> completePoint = replaceQuestionMarkIndex(temp_values[j], inputPoint, missingFeature);
+                    float proba = 1;
+                    for(int k=0;k<nodeList.size();k++){
+                        proba = proba*Alarm.giveProba(completePoint, nodeList[k]);
                     }
                     dataPoints[j] = completePoint;
                     tempWeights[j] = proba;
                     sum += proba;
-                }  
+                }
                 for(int j=0;j<temp_num_values;j++){
                     Alarm.updateCPTs(dataPoints[j], (float)tempWeights[j]/sum);
                 }
+
             }
-            count++;
         }
-        fin.close();
-        dataWeight.clear();
-        Alarm.smoothen_divide_all_Aux(count);
+        Alarm.smoothen_divide_all_Aux();
         stop = clock();
         duration = float(stop - start)/CLOCKS_PER_SEC;
     }
