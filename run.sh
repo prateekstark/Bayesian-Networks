@@ -1,1 +1,1 @@
-./bayesian_learning $1 $2
+./bayesian_network_learning data/$1 data/$2
